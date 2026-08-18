@@ -1,0 +1,13 @@
+{
+	"limits": {
+		"maxFileLines": 220,
+		"maxFunctionLines": 55,
+		"maxClassLines": 120,
+		"maxMethodLines": 35,
+		"maxNestingDepth": 4,
+		"maxParameters": 4,
+		"maxComplexity": 10,
+		"maxClassesPerFile": 1
+	},
+	"ignore": []
+}

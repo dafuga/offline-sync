@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+.svelte-kit
+build
+*.cpp
+*.h
+*.hpp
+*.py
+*.sh
+*.wasm

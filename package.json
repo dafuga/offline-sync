@@ -1,0 +1,52 @@
+{
+	"name": "@dafuga01/offline-sync",
+	"version": "0.1.0",
+	"description": "Framework-neutral IndexedDB response caching and durable offline mutation replay.",
+	"type": "module",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/dafuga/offline-sync.git"
+	},
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist",
+		"README.md",
+		"LICENSE"
+	],
+	"harness": {
+		"kind": "lib"
+	},
+	"scripts": {
+		"clean": "bun -e \"import { rm } from 'node:fs/promises'; await rm('dist', { recursive: true, force: true })\"",
+		"build": "bun run clean && bun build src/index.ts --target browser --outdir dist && tsc -p tsconfig.build.json",
+		"check": "bun run format:check && bun run typecheck && bun run lint && bun run test && bun run build && bun run audit",
+		"typecheck": "tsc --noEmit",
+		"format:check": "prettier --check .",
+		"format": "prettier --write .",
+		"lint": "eslint .",
+		"audit": "bun scripts/harness-audit.ts",
+		"test": "bun run test:unit",
+		"test:unit": "vitest run"
+	},
+	"devDependencies": {
+		"@dafuga01/harness": "0.1.3",
+		"@eslint/js": "^9.25.1",
+		"@types/bun": "^1.2.18",
+		"@typescript-eslint/eslint-plugin": "^8.31.1",
+		"@typescript-eslint/parser": "^8.31.1",
+		"eslint": "^9.25.1",
+		"eslint-config-prettier": "^10.1.2",
+		"fake-indexeddb": "^6.2.4",
+		"prettier": "^3.5.3",
+		"typescript": "^5.8.3",
+		"vitest": "^3.1.2"
+	}
+}

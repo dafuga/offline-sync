@@ -1,0 +1,44 @@
+{
+	"name": "reusable-offline-sync",
+	"goal": "A new app can install a framework-neutral IndexedDB cache and offline mutation replay engine with configuration only, while Fluora preserves its existing database and sync behavior through a thin adapter.",
+	"createdAt": "2026-08-18T04:08:32.003Z",
+	"updatedAt": "2026-08-18T04:21:56.149Z",
+	"template": "feature",
+	"templateLineage": ["feature"],
+	"steps": [
+		{
+			"id": "spec",
+			"title": "Confirm scope, success criteria, constraints, and proof.",
+			"status": "complete",
+			"completedAt": "2026-08-18T04:17:07.903Z",
+			"evidence": "Both repositories now have planned feature specifications with measurable compatibility, API, migration, test, and integration gates."
+		},
+		{
+			"id": "implement",
+			"title": "Implement the smallest complete feature slice.",
+			"status": "complete",
+			"completedAt": "2026-08-18T04:21:56.128Z",
+			"evidence": "Framework-neutral IndexedDB adapter, cache contracts, serialized mutation replay engine, retry policies, and application callbacks are implemented; Fluora compiles and builds through a thin local adapter."
+		},
+		{
+			"id": "test",
+			"title": "Add or update focused automated coverage.",
+			"status": "complete",
+			"completedAt": "2026-08-18T04:21:56.149Z",
+			"evidence": "10 package tests and 23 focused Fluora offline/API tests pass, including legacy IndexedDB migration, ordering, backoff, policy resolution, and concurrency."
+		},
+		{
+			"id": "verify",
+			"title": "Run the relevant project verification commands.",
+			"status": "pending"
+		}
+	],
+	"evaluators": [
+		{
+			"id": "check",
+			"title": "Run the project check script.",
+			"command": "bun run check",
+			"step": "verify"
+		}
+	]
+}
