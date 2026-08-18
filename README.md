@@ -6,7 +6,7 @@ TypeScript browser and Capacitor applications.
 ## Install
 
 ```bash
-bun add github:dafuga/offline-sync#v0.1.0
+bun add github:dafuga/offline-sync#v0.1.1
 ```
 
 The package has no runtime dependencies and does not import Svelte, React, Capacitor, or
