@@ -2,7 +2,7 @@
 	"name": "revision-aware-dataset-sync",
 	"goal": "Replace cached items when stable IDs retain stale content revisions without losing app-owned progress",
 	"createdAt": "2026-08-19T05:31:57.550Z",
-	"updatedAt": "2026-08-19T05:34:29.626Z",
+	"updatedAt": "2026-08-19T06:05:52.569Z",
 	"steps": [
 		{
 			"id": "spec-written",
@@ -21,12 +21,16 @@
 		{
 			"id": "fluora-integration-tested",
 			"title": "Test Fluora stale-card refresh",
-			"status": "pending"
+			"status": "complete",
+			"completedAt": "2026-08-19T06:05:52.548Z",
+			"evidence": "Fluora commit 909b067 adds revisioned word content, a bounded authenticated refresh endpoint, cache reconciliation, and a passing mobile WebKit stale-ngalan refresh regression."
 		},
 		{
 			"id": "repositories-verified",
 			"title": "Verify both repositories",
-			"status": "pending"
+			"status": "complete",
+			"completedAt": "2026-08-19T06:05:52.569Z",
+			"evidence": "offline-sync check passed 13 tests, typecheck, ESLint, build, and Harness audit; Fluora passed 615 tests, svelte-check, ESLint, production build, mobile WebKit E2E, and signed-in local browser QA."
 		}
 	]
 }
