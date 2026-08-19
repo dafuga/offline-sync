@@ -1,0 +1,7 @@
+{"event":"loop.created","timestamp":"2026-08-19T05:31:57.550Z","name":"revision-aware-dataset-sync","goal":"Replace cached items when stable IDs retain stale content revisions without losing app-owned progress"}
+{"event":"step.added","timestamp":"2026-08-19T05:33:11.884Z","loop":"revision-aware-dataset-sync","step":"spec-written","title":"Write measurable feature specification"}
+{"event":"step.added","timestamp":"2026-08-19T05:33:11.908Z","loop":"revision-aware-dataset-sync","step":"shared-reconciler-tested","title":"Test shared revision reconciliation"}
+{"event":"step.added","timestamp":"2026-08-19T05:33:11.931Z","loop":"revision-aware-dataset-sync","step":"fluora-integration-tested","title":"Test Fluora stale-card refresh"}
+{"event":"step.added","timestamp":"2026-08-19T05:33:11.954Z","loop":"revision-aware-dataset-sync","step":"repositories-verified","title":"Verify both repositories"}
+{"event":"step.completed","timestamp":"2026-08-19T05:34:29.604Z","loop":"revision-aware-dataset-sync","step":"spec-written","evidence":"Planned feature spec defines stable-key revision replacement, additions, deletions, reporting, and tests."}
+{"event":"step.completed","timestamp":"2026-08-19T05:34:29.626Z","loop":"revision-aware-dataset-sync","step":"shared-reconciler-tested","evidence":"Vitest passed 13 package tests including three focused revision reconciliation cases; typecheck and ESLint passed."}

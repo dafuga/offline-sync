@@ -1,0 +1,32 @@
+{
+	"name": "revision-aware-dataset-sync",
+	"goal": "Replace cached items when stable IDs retain stale content revisions without losing app-owned progress",
+	"createdAt": "2026-08-19T05:31:57.550Z",
+	"updatedAt": "2026-08-19T05:34:29.626Z",
+	"steps": [
+		{
+			"id": "spec-written",
+			"title": "Write measurable feature specification",
+			"status": "complete",
+			"completedAt": "2026-08-19T05:34:29.604Z",
+			"evidence": "Planned feature spec defines stable-key revision replacement, additions, deletions, reporting, and tests."
+		},
+		{
+			"id": "shared-reconciler-tested",
+			"title": "Test shared revision reconciliation",
+			"status": "complete",
+			"completedAt": "2026-08-19T05:34:29.626Z",
+			"evidence": "Vitest passed 13 package tests including three focused revision reconciliation cases; typecheck and ESLint passed."
+		},
+		{
+			"id": "fluora-integration-tested",
+			"title": "Test Fluora stale-card refresh",
+			"status": "pending"
+		},
+		{
+			"id": "repositories-verified",
+			"title": "Verify both repositories",
+			"status": "pending"
+		}
+	]
+}

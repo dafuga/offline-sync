@@ -88,6 +88,28 @@ The package deliberately leaves these decisions to each app:
 
 Call `sync.stop()` when the owning application lifecycle ends.
 
+## Revision-aware datasets
+
+Applications that retain structured datasets can replace stale entries without discarding the
+whole local snapshot. Give every entry a stable `syncKey` and an application-generated
+`contentRevision`, then reconcile a fresh server window with the cached entries:
+
+```ts
+import { reconcileVersionedDataset } from '@dafuga01/offline-sync';
+
+const result = reconcileVersionedDataset(cachedItems, serverItems, {
+	deletedKeys: serverDeletedKeys
+});
+
+await saveDataset(result.items);
+```
+
+Changed entries replace their cached counterpart in place, unchanged entries retain object
+identity, and new entries append once. The application owns revision generation, deleted-key
+discovery, network refresh timing, validation, and persistence. Keep mutable learner or user
+state separate from server-owned content, or include the current state in incoming replacement
+entries.
+
 ## Compatibility and migration
 
 Existing IndexedDB data can be adopted without copying it. Configure the same database

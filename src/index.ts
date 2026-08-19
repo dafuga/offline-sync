@@ -21,3 +21,9 @@ export type {
 export function buildCacheKey(url: string): string {
 	return `GET:${url}`;
 }
+export { reconcileVersionedDataset } from './utils/reconcileVersionedDataset';
+export type {
+	ReconciledVersionedDataset,
+	ReconcileVersionedDatasetOptions,
+	RevisionedDatasetItem
+} from './utils/reconcileVersionedDataset';

@@ -324,12 +324,41 @@ class OfflineSyncEngineService {
       await this.flushQueue();
   }
 }
+// src/utils/reconcileVersionedDataset.ts
+function reconcileVersionedDataset(currentItems, incomingItems, options = {}) {
+  const deletedKeys = new Set(options.deletedKeys ?? []);
+  const incomingByKey = new Map(incomingItems.map((item) => [item.syncKey, item]));
+  const items = [];
+  const updatedItems = [];
+  const unchangedItems = [];
+  const removedItems = [];
+  for (const currentItem of currentItems) {
+    if (deletedKeys.has(currentItem.syncKey)) {
+      removedItems.push(currentItem);
+      incomingByKey.delete(currentItem.syncKey);
+      continue;
+    }
+    const incomingItem = incomingByKey.get(currentItem.syncKey);
+    incomingByKey.delete(currentItem.syncKey);
+    if (!incomingItem || incomingItem.contentRevision === currentItem.contentRevision) {
+      items.push(currentItem);
+      unchangedItems.push(currentItem);
+      continue;
+    }
+    items.push(incomingItem);
+    updatedItems.push(incomingItem);
+  }
+  const addedItems = [...incomingByKey.values()].filter((item) => !deletedKeys.has(item.syncKey));
+  items.push(...addedItems);
+  return { items, addedItems, updatedItems, unchangedItems, removedItems };
+}
 
 // src/index.ts
 function buildCacheKey(url) {
   return `GET:${url}`;
 }
 export {
+  reconcileVersionedDataset,
   buildCacheKey,
   ReplayOperationService,
   OfflineSyncEngineService,
