@@ -4,6 +4,7 @@ export interface IndexedDbConnectionConfig {
     stores: IndexedDbStoreNames;
     obsoleteStoreNames: readonly string[];
     openRetryCooldownMs: number;
+    openTimeoutMs?: number;
     indexedDb?: IDBFactory;
     now: () => number;
 }
@@ -20,6 +21,11 @@ export declare class IndexedDbConnectionAdapter {
     isAvailable(): boolean;
     request<T>(storeName: string, mode: IDBTransactionMode, createRequest: (store: IDBObjectStore) => IDBRequest<T>): Promise<T>;
     close(): void;
+    writeBatch(changes: readonly {
+        store: string;
+        put?: unknown;
+        remove?: IDBValidKey;
+    }[]): Promise<void>;
     private get factory();
     private open;
     private createOpenRequest;

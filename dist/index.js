@@ -1,3 +1,57 @@
+// src/adapters/IndexedDbQueueAdapter.ts
+class IndexedDbQueueAdapter {
+  config;
+  constructor(config) {
+    this.config = config;
+  }
+  list() {
+    return this.config.connection.request(this.config.store, "readonly", (store) => store.getAll());
+  }
+  async pending(limit) {
+    return (await this.list()).filter((operation) => ["pending", "syncing"].includes(operation.status) && operation.nextRetryAt <= this.config.now()).sort((left, right) => left.createdAt - right.createdAt).slice(0, limit);
+  }
+  async stats() {
+    const operations = await this.list();
+    const last = await this.config.connection.request(this.config.meta, "readonly", (store) => store.get("lastSyncedAt"));
+    return {
+      pendingCount: operations.filter((item) => ["pending", "syncing"].includes(item.status)).length,
+      failedCount: operations.filter((item) => ["failed", "blocked"].includes(item.status)).length,
+      lastSyncedAt: last?.value ?? null
+    };
+  }
+  async retry(id) {
+    const current = await this.config.connection.request(this.config.store, "readonly", (store) => store.get(id));
+    if (!current)
+      throw new Error("Offline operation not found");
+    if (current.status === "syncing")
+      throw new Error("Cannot retry an active operation");
+    await this.config.connection.request(this.config.store, "readwrite", (store) => store.put({
+      ...current,
+      status: "pending",
+      attempts: 0,
+      nextRetryAt: this.config.now(),
+      lastError: null
+    }));
+  }
+}
+
+// src/adapters/IndexedDbCacheAdapter.ts
+class IndexedDbCacheAdapter {
+  config;
+  constructor(config) {
+    this.config = config;
+  }
+  async list(prefix = "") {
+    const records = await this.config.connection.request(this.config.store, "readonly", (store) => store.getAll());
+    return records.filter((record) => record.key.startsWith(prefix));
+  }
+  async remove(keys) {
+    if (!keys.length)
+      return;
+    await this.config.connection.writeBatch(keys.map((key) => ({ store: this.config.store, remove: key })));
+  }
+}
+
 // src/adapters/IndexedDbConnectionAdapter.ts
 class IndexedDbConnectionAdapter {
   config;
@@ -13,13 +67,48 @@ class IndexedDbConnectionAdapter {
     const db = await this.open();
     const transaction = db.transaction([storeName], mode);
     const completion = transactionToPromise(transaction);
-    const result = await requestToPromise(createRequest(transaction.objectStore(storeName)));
-    await completion;
-    return result;
+    try {
+      const [result] = await Promise.all([
+        requestToPromise(createRequest(transaction.objectStore(storeName))),
+        completion
+      ]);
+      return result;
+    } catch (failure) {
+      try {
+        transaction.abort();
+      } catch {}
+      await completion.catch(() => {
+        return;
+      });
+      throw failure;
+    }
   }
   close() {
-    this.dbPromise?.then((database) => database.close());
+    this.dbPromise?.then((database) => database.close()).catch(() => {
+      return;
+    });
     this.dbPromise = null;
+  }
+  async writeBatch(changes) {
+    const db = await this.open();
+    const transaction = db.transaction([...new Set(changes.map((change) => change.store))], "readwrite");
+    const completion = transactionToPromise(transaction);
+    try {
+      for (const change of changes) {
+        const store = transaction.objectStore(change.store);
+        if (change.remove !== undefined)
+          store.delete(change.remove);
+        else
+          store.put(change.put);
+      }
+    } catch (error) {
+      transaction.abort();
+      await completion.catch(() => {
+        return;
+      });
+      throw error;
+    }
+    await completion;
   }
   get factory() {
     return this.config.indexedDb ?? globalThis.indexedDB;
@@ -34,11 +123,10 @@ class IndexedDbConnectionAdapter {
     return this.dbPromise;
   }
   createOpenRequest(factory) {
-    return new Promise((resolve, reject) => {
-      const request = factory.open(this.config.databaseName, this.config.version);
-      request.onerror = () => this.handleOpenError(reject);
-      request.onsuccess = () => this.handleOpenSuccess(request.result, resolve);
-      request.onupgradeneeded = () => this.upgrade(request.result, request.transaction);
+    return openDatabase(factory, this.config, {
+      onError: (reject) => this.handleOpenError(reject),
+      onSuccess: (database, resolve) => this.handleOpenSuccess(database, resolve),
+      onUpgrade: (database, transaction) => this.upgrade(database, transaction)
     });
   }
   handleOpenError(reject) {
@@ -92,6 +180,41 @@ function transactionToPromise(transaction) {
     transaction.onabort = () => reject(new Error("IndexedDB transaction aborted"));
   });
 }
+function openDatabase(factory, config, handlers) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = () => {
+      if (settled)
+        return;
+      settled = true;
+      globalThis.clearTimeout(timer);
+      handlers.onError(reject);
+    };
+    const timer = globalThis.setTimeout(fail, config.openTimeoutMs ?? 3000);
+    try {
+      const request = factory.open(config.databaseName, config.version);
+      request.onerror = fail;
+      request.onsuccess = () => {
+        if (settled) {
+          request.result.close();
+          return;
+        }
+        settled = true;
+        globalThis.clearTimeout(timer);
+        handlers.onSuccess(request.result, resolve);
+      };
+      request.onupgradeneeded = () => {
+        if (settled) {
+          request.transaction?.abort();
+          return;
+        }
+        handlers.onUpgrade(request.result, request.transaction);
+      };
+    } catch {
+      fail();
+    }
+  });
+}
 
 // src/adapters/IndexedDbOfflineStoreAdapter.ts
 var DEFAULT_STORES = {
@@ -104,17 +227,21 @@ class IndexedDbOfflineStoreAdapter {
   connection;
   stores;
   now;
+  queue;
+  cache;
   constructor(config) {
     this.stores = { ...DEFAULT_STORES, ...config.stores };
     this.now = config.now ?? Date.now;
-    this.connection = new IndexedDbConnectionAdapter({
-      databaseName: config.databaseName,
-      version: config.version ?? 1,
-      stores: this.stores,
-      obsoleteStoreNames: config.obsoleteStoreNames ?? [],
-      openRetryCooldownMs: config.openRetryCooldownMs ?? 60000,
-      indexedDb: config.indexedDb,
+    this.connection = createConnection(config, this.stores, this.now);
+    this.queue = new IndexedDbQueueAdapter({
+      connection: this.connection,
+      store: this.stores.queue,
+      meta: this.stores.meta,
       now: this.now
+    });
+    this.cache = new IndexedDbCacheAdapter({
+      connection: this.connection,
+      store: this.stores.cache
     });
   }
   isAvailable() {
@@ -129,33 +256,53 @@ class IndexedDbOfflineStoreAdapter {
     const result = await this.connection.request(this.stores.cache, "readonly", (store) => store.get(key));
     return result ?? null;
   }
-  upsertOperation(operation) {
+  async upsertOperation(operation) {
+    if (!this.isAvailable())
+      throw new Error("Offline storage unavailable");
     return this.write(this.stores.queue, operation);
   }
-  async deleteOperation(id) {
+  async deleteOperation(id, cache = [], removeCacheKeys = []) {
     if (!this.isAvailable())
-      return;
-    await this.connection.request(this.stores.queue, "readwrite", (store) => store.delete(id));
+      throw new Error("Offline storage unavailable");
+    await commitStoreChanges(this.connection, this.stores, {
+      operations: [],
+      cache,
+      removeCacheKeys,
+      removeOperations: [id]
+    });
   }
   async getPendingOperations(limit = 50) {
     if (!this.isAvailable())
       return [];
-    const operations = await this.getAllOperations();
-    return operations.filter((operation) => operation.status !== "failed" && operation.nextRetryAt <= this.now()).sort((left, right) => left.createdAt - right.createdAt).slice(0, limit);
+    return this.queue.pending(limit);
   }
   async getStats() {
     if (!this.isAvailable())
-      return emptyStats();
-    const operations = await this.getAllOperations();
-    const lastSyncedAt = await this.getLastSyncedAt();
-    return {
-      pendingCount: operations.filter((item) => item.status !== "failed").length,
-      failedCount: operations.filter((item) => item.status === "failed").length,
-      lastSyncedAt
-    };
+      return { pendingCount: 0, failedCount: 0, lastSyncedAt: null };
+    return this.queue.stats();
   }
   setLastSyncedAt(timestamp) {
     return this.write(this.stores.meta, { key: "lastSyncedAt", value: timestamp });
+  }
+  listOperations() {
+    return this.queue.list();
+  }
+  retryOperation(id) {
+    return this.queue.retry(id);
+  }
+  listCachedResponses(prefix = "") {
+    return this.cache.list(prefix);
+  }
+  deleteCachedResponses(keys) {
+    return this.cache.remove(keys);
+  }
+  async commitOperation(operation, cache, removeCacheKeys = []) {
+    return this.commitOperations([operation], cache, removeCacheKeys);
+  }
+  async commitOperations(operations, cache, removeCacheKeys = []) {
+    if (!this.isAvailable())
+      throw new Error("Offline storage unavailable");
+    await commitStoreChanges(this.connection, this.stores, { operations, cache, removeCacheKeys });
   }
   close() {
     this.connection.close();
@@ -165,16 +312,33 @@ class IndexedDbOfflineStoreAdapter {
       return;
     await this.connection.request(storeName, "readwrite", (store) => store.put(value));
   }
-  getAllOperations() {
-    return this.connection.request(this.stores.queue, "readonly", (store) => store.getAll());
-  }
-  async getLastSyncedAt() {
-    const result = await this.connection.request(this.stores.meta, "readonly", (store) => store.get("lastSyncedAt"));
-    return result?.value ?? null;
-  }
 }
-function emptyStats() {
-  return { pendingCount: 0, failedCount: 0, lastSyncedAt: null };
+async function commitStoreChanges(connection, stores, {
+  operations,
+  cache,
+  removeCacheKeys,
+  removeOperations = []
+}) {
+  if (!operations.length && !cache.length && !removeCacheKeys.length && !removeOperations.length)
+    return;
+  await connection.writeBatch([
+    ...operations.map((operation) => ({ store: stores.queue, put: operation })),
+    ...removeOperations.map((id) => ({ store: stores.queue, remove: id })),
+    ...removeCacheKeys.map((key) => ({ store: stores.cache, remove: key })),
+    ...cache.map((record) => ({ store: stores.cache, put: record }))
+  ]);
+}
+function createConnection(config, stores, now) {
+  return new IndexedDbConnectionAdapter({
+    databaseName: config.databaseName,
+    version: config.version ?? 1,
+    stores,
+    obsoleteStoreNames: config.obsoleteStoreNames ?? [],
+    openRetryCooldownMs: config.openRetryCooldownMs ?? 60000,
+    indexedDb: config.indexedDb,
+    now,
+    openTimeoutMs: config.openTimeoutMs ?? 3000
+  });
 }
 // src/services/ReplayOperationService.ts
 class ReplayOperationService {
@@ -183,21 +347,36 @@ class ReplayOperationService {
     this.config = config;
   }
   async run(operation) {
+    if (this.config.canReplay && !await this.config.canReplay(operation))
+      return null;
     const syncingOperation = { ...operation, status: "syncing" };
     await this.config.store.upsertOperation(syncingOperation);
     try {
       const response = await this.send(syncingOperation);
       const responseText = await response.clone().text().catch(() => "");
-      const resolved = response.ok || await this.isPolicyResolved(syncingOperation, response, responseText);
-      if (resolved)
-        await this.config.store.deleteOperation(syncingOperation.id);
-      else
-        await this.retry(syncingOperation, `HTTP ${response.status}`);
+      await this.handleResponse({ operation: syncingOperation, response, responseText });
       return response;
     } catch (error) {
       await this.retry(syncingOperation, errorMessage(error));
       return null;
     }
+  }
+  async handleResponse(context) {
+    const { operation, response } = context;
+    const decision = await this.decision(context);
+    const resolved = decision.status === "resolved";
+    if (resolved) {
+      await this.config.onResolved?.(context);
+      await this.config.store.deleteOperation(operation.id);
+      await this.config.store.setLastSyncedAt(this.config.now());
+    } else if (decision.status === "blocked" || decision.status === "failed") {
+      await this.config.store.upsertOperation({
+        ...operation,
+        status: decision.status,
+        lastError: decision.reason ?? `HTTP ${response.status}`
+      });
+    } else
+      await this.retry(operation, decision.reason ?? `HTTP ${response.status}`);
   }
   async send(operation) {
     const headers = new Headers(operation.headers);
@@ -209,8 +388,11 @@ class ReplayOperationService {
       credentials: this.config.credentials
     });
   }
-  isPolicyResolved(operation, response, responseText) {
-    return this.config.shouldTreatAsResolved?.({ operation, response, responseText }) ?? false;
+  async decision(context) {
+    if (this.config.classifyResponse)
+      return this.config.classifyResponse(context);
+    const resolved = context.response.ok || await this.config.shouldTreatAsResolved?.(context);
+    return { status: resolved ? "resolved" : "retry" };
   }
   retry(operation, message) {
     const attempts = operation.attempts + 1;
@@ -252,14 +434,17 @@ class OfflineSyncEngineService {
       maxRetryMs: config.maxRetryMs ?? 60000,
       credentials: config.credentials,
       applyReplayHeaders: config.applyReplayHeaders,
-      shouldTreatAsResolved: config.shouldTreatAsResolved
+      shouldTreatAsResolved: config.shouldTreatAsResolved,
+      canReplay: config.canReplay,
+      classifyResponse: config.classifyResponse,
+      onResolved: config.onResolved
     });
   }
   async start() {
     await this.refreshStats();
     if (this.flushTimer)
       return;
-    this.flushTimer = globalThis.setInterval(() => void this.flushWhenNeeded(), this.config.flushIntervalMs ?? 3000);
+    this.flushTimer = globalThis.setInterval(() => void this.flushWhenNeeded().catch((error) => this.config.onError?.(error)), this.config.flushIntervalMs ?? 3000);
   }
   stop() {
     if (this.flushTimer)
@@ -271,7 +456,9 @@ class OfflineSyncEngineService {
     this.config.onStats?.(this.stats);
     return this.stats;
   }
-  async enqueueOperation(input) {
+  async enqueueOperation(input, cache = []) {
+    if (!this.config.store.isAvailable())
+      throw new Error("Offline storage unavailable");
     const operation = {
       ...input,
       id: this.createId(),
@@ -280,7 +467,12 @@ class OfflineSyncEngineService {
       status: "pending",
       lastError: null
     };
-    await this.config.store.upsertOperation(operation);
+    if (cache.length && !this.config.store.commitOperation)
+      throw new Error("Atomic cache writes unsupported");
+    if (cache.length)
+      await this.config.store.commitOperation(operation, cache);
+    else
+      await this.config.store.upsertOperation(operation);
     await this.refreshStats();
     return operation;
   }
@@ -294,7 +486,7 @@ class OfflineSyncEngineService {
           break;
         await this.replay.run(operation);
       }
-      await this.recordSync();
+      await this.refreshStats();
     });
   }
   replayQueuedOperation(operation) {
@@ -302,7 +494,7 @@ class OfflineSyncEngineService {
       return Promise.resolve(null);
     return this.runSerialized(async () => {
       const response = await this.replay.run(operation);
-      await this.recordSync();
+      await this.refreshStats();
       return response;
     });
   }
@@ -314,10 +506,6 @@ class OfflineSyncEngineService {
       return;
     });
     return result;
-  }
-  async recordSync() {
-    await this.config.store.setLastSyncedAt(this.now());
-    await this.refreshStats();
   }
   async flushWhenNeeded() {
     if (this.config.isOnline() && this.stats.pendingCount > 0)
