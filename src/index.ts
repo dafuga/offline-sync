@@ -13,6 +13,8 @@ export type {
 	OfflineOperationStatus,
 	OfflineStore,
 	ReplayHeadersPolicy,
+	ReplayHooks,
+	ReplayDecision,
 	ReplayResolutionContext,
 	ReplayResolutionPolicy,
 	SyncStats

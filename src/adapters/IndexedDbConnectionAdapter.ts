@@ -42,6 +42,29 @@ export class IndexedDbConnectionAdapter {
 		this.dbPromise = null;
 	}
 
+	async writeBatch(
+		changes: readonly { store: string; put?: unknown; remove?: IDBValidKey }[]
+	): Promise<void> {
+		const db = await this.open();
+		const transaction = db.transaction(
+			[...new Set(changes.map((change) => change.store))],
+			'readwrite'
+		);
+		const completion = transactionToPromise(transaction);
+		try {
+			for (const change of changes) {
+				const store = transaction.objectStore(change.store);
+				if (change.remove !== undefined) store.delete(change.remove);
+				else store.put(change.put);
+			}
+		} catch (error) {
+			transaction.abort();
+			await completion.catch(() => undefined);
+			throw error;
+		}
+		await completion;
+	}
+
 	private get factory(): IDBFactory | undefined {
 		return this.config.indexedDb ?? globalThis.indexedDB;
 	}

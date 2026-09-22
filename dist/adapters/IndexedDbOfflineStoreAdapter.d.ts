@@ -13,6 +13,8 @@ export declare class IndexedDbOfflineStoreAdapter implements OfflineStore {
     private readonly connection;
     private readonly stores;
     private readonly now;
+    private readonly queue;
+    private readonly cache;
     constructor(config: IndexedDbOfflineStoreAdapterConfig);
     isAvailable(): boolean;
     saveCachedResponse(record: CachedResponseRecord): Promise<void>;
@@ -22,8 +24,11 @@ export declare class IndexedDbOfflineStoreAdapter implements OfflineStore {
     getPendingOperations(limit?: number): Promise<OfflineOperation[]>;
     getStats(): Promise<SyncStats>;
     setLastSyncedAt(timestamp: number): Promise<void>;
+    listOperations(): Promise<OfflineOperation[]>;
+    retryOperation(id: string): Promise<void>;
+    listCachedResponses(prefix?: string): Promise<CachedResponseRecord[]>;
+    deleteCachedResponses(keys: readonly string[]): Promise<void>;
+    commitOperation(operation: OfflineOperation, cache: CachedResponseRecord[]): Promise<void>;
     close(): void;
     private write;
-    private getAllOperations;
-    private getLastSyncedAt;
 }

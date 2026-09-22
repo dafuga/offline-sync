@@ -1,3 +1,5 @@
+import { IndexedDbQueueAdapter } from './IndexedDbQueueAdapter';
+import { IndexedDbCacheAdapter } from './IndexedDbCacheAdapter';
 import { IndexedDbConnectionAdapter, type IndexedDbStoreNames } from './IndexedDbConnectionAdapter';
 import type {
 	CachedResponseRecord,
@@ -26,6 +28,8 @@ export class IndexedDbOfflineStoreAdapter implements OfflineStore {
 	private readonly connection: IndexedDbConnectionAdapter;
 	private readonly stores: IndexedDbStoreNames;
 	private readonly now: () => number;
+	private readonly queue: IndexedDbQueueAdapter;
+	private readonly cache: IndexedDbCacheAdapter;
 
 	constructor(config: IndexedDbOfflineStoreAdapterConfig) {
 		this.stores = { ...DEFAULT_STORES, ...config.stores };
@@ -38,6 +42,16 @@ export class IndexedDbOfflineStoreAdapter implements OfflineStore {
 			openRetryCooldownMs: config.openRetryCooldownMs ?? 60_000,
 			indexedDb: config.indexedDb,
 			now: this.now
+		});
+		this.queue = new IndexedDbQueueAdapter({
+			connection: this.connection,
+			store: this.stores.queue,
+			meta: this.stores.meta,
+			now: this.now
+		});
+		this.cache = new IndexedDbCacheAdapter({
+			connection: this.connection,
+			store: this.stores.cache
 		});
 	}
 
@@ -59,37 +73,49 @@ export class IndexedDbOfflineStoreAdapter implements OfflineStore {
 		return result ?? null;
 	}
 
-	upsertOperation(operation: OfflineOperation): Promise<void> {
+	async upsertOperation(operation: OfflineOperation): Promise<void> {
+		if (!this.isAvailable()) throw new Error('Offline storage unavailable');
 		return this.write(this.stores.queue, operation);
 	}
 
 	async deleteOperation(id: string): Promise<void> {
-		if (!this.isAvailable()) return;
+		if (!this.isAvailable()) throw new Error('Offline storage unavailable');
 		await this.connection.request(this.stores.queue, 'readwrite', (store) => store.delete(id));
 	}
 
 	async getPendingOperations(limit = 50): Promise<OfflineOperation[]> {
 		if (!this.isAvailable()) return [];
-		const operations = await this.getAllOperations();
-		return operations
-			.filter((operation) => operation.status !== 'failed' && operation.nextRetryAt <= this.now())
-			.sort((left, right) => left.createdAt - right.createdAt)
-			.slice(0, limit);
+		return this.queue.pending(limit);
 	}
 
 	async getStats(): Promise<SyncStats> {
-		if (!this.isAvailable()) return emptyStats();
-		const operations = await this.getAllOperations();
-		const lastSyncedAt = await this.getLastSyncedAt();
-		return {
-			pendingCount: operations.filter((item) => item.status !== 'failed').length,
-			failedCount: operations.filter((item) => item.status === 'failed').length,
-			lastSyncedAt
-		};
+		if (!this.isAvailable()) return { pendingCount: 0, failedCount: 0, lastSyncedAt: null };
+		return this.queue.stats();
 	}
 
 	setLastSyncedAt(timestamp: number): Promise<void> {
 		return this.write(this.stores.meta, { key: 'lastSyncedAt', value: timestamp });
+	}
+
+	listOperations(): Promise<OfflineOperation[]> {
+		return this.queue.list();
+	}
+	retryOperation(id: string): Promise<void> {
+		return this.queue.retry(id);
+	}
+	listCachedResponses(prefix = ''): Promise<CachedResponseRecord[]> {
+		return this.cache.list(prefix);
+	}
+	deleteCachedResponses(keys: readonly string[]): Promise<void> {
+		return this.cache.remove(keys);
+	}
+
+	async commitOperation(operation: OfflineOperation, cache: CachedResponseRecord[]): Promise<void> {
+		if (!this.isAvailable()) throw new Error('Offline storage unavailable');
+		await this.connection.writeBatch([
+			{ store: this.stores.queue, put: operation },
+			...cache.map((record) => ({ store: this.stores.cache, put: record }))
+		]);
 	}
 
 	close(): void {
@@ -100,21 +126,4 @@ export class IndexedDbOfflineStoreAdapter implements OfflineStore {
 		if (!this.isAvailable()) return;
 		await this.connection.request(storeName, 'readwrite', (store) => store.put(value));
 	}
-
-	private getAllOperations(): Promise<OfflineOperation[]> {
-		return this.connection.request(this.stores.queue, 'readonly', (store) => store.getAll());
-	}
-
-	private async getLastSyncedAt(): Promise<number | null> {
-		const result = await this.connection.request<{ key: string; value: number } | undefined>(
-			this.stores.meta,
-			'readonly',
-			(store) => store.get('lastSyncedAt')
-		);
-		return result?.value ?? null;
-	}
-}
-
-function emptyStats(): SyncStats {
-	return { pendingCount: 0, failedCount: 0, lastSyncedAt: null };
 }

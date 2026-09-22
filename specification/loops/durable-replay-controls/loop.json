@@ -1,0 +1,46 @@
+{
+	"name": "durable-replay-controls",
+	"goal": "Durably save offline changes and replay them with recoverable dependencies and conflicts while retaining Fluora compatibility",
+	"createdAt": "2026-09-22T12:15:46.313Z",
+	"updatedAt": "2026-09-22T12:22:39.015Z",
+	"template": "feature",
+	"templateLineage": ["feature"],
+	"steps": [
+		{
+			"id": "spec",
+			"title": "Confirm scope, success criteria, constraints, and proof.",
+			"status": "complete",
+			"completedAt": "2026-09-22T12:22:38.948Z",
+			"evidence": "Accepted spec covers durable writes, recovery hooks, and compatibility"
+		},
+		{
+			"id": "implement",
+			"title": "Implement the smallest complete feature slice.",
+			"status": "complete",
+			"completedAt": "2026-09-22T12:22:38.970Z",
+			"evidence": "IndexedDB atomic writes and replay hooks implemented"
+		},
+		{
+			"id": "test",
+			"title": "Add or update focused automated coverage.",
+			"status": "complete",
+			"completedAt": "2026-09-22T12:22:38.993Z",
+			"evidence": "Six unchanged regressions failed before and passed after; all 19 tests passed"
+		},
+		{
+			"id": "verify",
+			"title": "Run the relevant project verification commands.",
+			"status": "complete",
+			"completedAt": "2026-09-22T12:22:39.015Z",
+			"evidence": "bun run check passed formatting, typecheck, lint, all tests, build, and audit"
+		}
+	],
+	"evaluators": [
+		{
+			"id": "check",
+			"title": "Run the project check script.",
+			"command": "bun run check",
+			"step": "verify"
+		}
+	]
+}
