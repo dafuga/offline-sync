@@ -6,6 +6,7 @@ export interface IndexedDbOfflineStoreAdapterConfig {
     stores?: Partial<IndexedDbStoreNames>;
     obsoleteStoreNames?: readonly string[];
     openRetryCooldownMs?: number;
+    openTimeoutMs?: number;
     indexedDb?: IDBFactory;
     now?: () => number;
 }
@@ -29,6 +30,7 @@ export declare class IndexedDbOfflineStoreAdapter implements OfflineStore {
     listCachedResponses(prefix?: string): Promise<CachedResponseRecord[]>;
     deleteCachedResponses(keys: readonly string[]): Promise<void>;
     commitOperation(operation: OfflineOperation, cache: CachedResponseRecord[], removeCacheKeys?: readonly string[]): Promise<void>;
+    commitOperations(operations: readonly OfflineOperation[], cache: readonly CachedResponseRecord[], removeCacheKeys?: readonly string[]): Promise<void>;
     close(): void;
     private write;
 }

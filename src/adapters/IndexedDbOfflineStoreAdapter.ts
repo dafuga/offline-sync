@@ -20,6 +20,7 @@ export interface IndexedDbOfflineStoreAdapterConfig {
 	stores?: Partial<IndexedDbStoreNames>;
 	obsoleteStoreNames?: readonly string[];
 	openRetryCooldownMs?: number;
+	openTimeoutMs?: number;
 	indexedDb?: IDBFactory;
 	now?: () => number;
 }
@@ -34,15 +35,7 @@ export class IndexedDbOfflineStoreAdapter implements OfflineStore {
 	constructor(config: IndexedDbOfflineStoreAdapterConfig) {
 		this.stores = { ...DEFAULT_STORES, ...config.stores };
 		this.now = config.now ?? Date.now;
-		this.connection = new IndexedDbConnectionAdapter({
-			databaseName: config.databaseName,
-			version: config.version ?? 1,
-			stores: this.stores,
-			obsoleteStoreNames: config.obsoleteStoreNames ?? [],
-			openRetryCooldownMs: config.openRetryCooldownMs ?? 60_000,
-			indexedDb: config.indexedDb,
-			now: this.now
-		});
+		this.connection = createConnection(config, this.stores, this.now);
 		this.queue = new IndexedDbQueueAdapter({
 			connection: this.connection,
 			store: this.stores.queue,
@@ -84,11 +77,12 @@ export class IndexedDbOfflineStoreAdapter implements OfflineStore {
 		removeCacheKeys: readonly string[] = []
 	): Promise<void> {
 		if (!this.isAvailable()) throw new Error('Offline storage unavailable');
-		await this.connection.writeBatch([
-			{ store: this.stores.queue, remove: id },
-			...removeCacheKeys.map((key) => ({ store: this.stores.cache, remove: key })),
-			...cache.map((record) => ({ store: this.stores.cache, put: record }))
-		]);
+		await commitStoreChanges(this.connection, this.stores, {
+			operations: [],
+			cache,
+			removeCacheKeys,
+			removeOperations: [id]
+		});
 	}
 
 	async getPendingOperations(limit = 50): Promise<OfflineOperation[]> {
@@ -123,12 +117,16 @@ export class IndexedDbOfflineStoreAdapter implements OfflineStore {
 		cache: CachedResponseRecord[],
 		removeCacheKeys: readonly string[] = []
 	): Promise<void> {
+		return this.commitOperations([operation], cache, removeCacheKeys);
+	}
+
+	async commitOperations(
+		operations: readonly OfflineOperation[],
+		cache: readonly CachedResponseRecord[],
+		removeCacheKeys: readonly string[] = []
+	): Promise<void> {
 		if (!this.isAvailable()) throw new Error('Offline storage unavailable');
-		await this.connection.writeBatch([
-			{ store: this.stores.queue, put: operation },
-			...removeCacheKeys.map((key) => ({ store: this.stores.cache, remove: key })),
-			...cache.map((record) => ({ store: this.stores.cache, put: record }))
-		]);
+		await commitStoreChanges(this.connection, this.stores, { operations, cache, removeCacheKeys });
 	}
 
 	close(): void {
@@ -139,4 +137,46 @@ export class IndexedDbOfflineStoreAdapter implements OfflineStore {
 		if (!this.isAvailable()) return;
 		await this.connection.request(storeName, 'readwrite', (store) => store.put(value));
 	}
+}
+
+async function commitStoreChanges(
+	connection: IndexedDbConnectionAdapter,
+	stores: IndexedDbStoreNames,
+	{
+		operations,
+		cache,
+		removeCacheKeys,
+		removeOperations = []
+	}: {
+		operations: readonly OfflineOperation[];
+		cache: readonly CachedResponseRecord[];
+		removeCacheKeys: readonly string[];
+		removeOperations?: readonly string[];
+	}
+): Promise<void> {
+	if (!operations.length && !cache.length && !removeCacheKeys.length && !removeOperations.length)
+		return;
+	await connection.writeBatch([
+		...operations.map((operation) => ({ store: stores.queue, put: operation })),
+		...removeOperations.map((id) => ({ store: stores.queue, remove: id })),
+		...removeCacheKeys.map((key) => ({ store: stores.cache, remove: key })),
+		...cache.map((record) => ({ store: stores.cache, put: record }))
+	]);
+}
+
+function createConnection(
+	config: IndexedDbOfflineStoreAdapterConfig,
+	stores: IndexedDbStoreNames,
+	now: () => number
+): IndexedDbConnectionAdapter {
+	return new IndexedDbConnectionAdapter({
+		databaseName: config.databaseName,
+		version: config.version ?? 1,
+		stores: stores,
+		obsoleteStoreNames: config.obsoleteStoreNames ?? [],
+		openRetryCooldownMs: config.openRetryCooldownMs ?? 60_000,
+		indexedDb: config.indexedDb,
+		now: now,
+		openTimeoutMs: config.openTimeoutMs ?? 3000
+	});
 }

@@ -39,6 +39,7 @@ export interface OfflineStore {
     getPendingOperations(limit?: number): Promise<OfflineOperation[]>;
     getStats(): Promise<SyncStats>;
     setLastSyncedAt(timestamp: number): Promise<void>;
+    commitOperations?(operations: readonly OfflineOperation[], cache: readonly CachedResponseRecord[], removeCacheKeys?: readonly string[]): Promise<void>;
     commitOperation?(operation: OfflineOperation, cache: CachedResponseRecord[], removeCacheKeys?: readonly string[]): Promise<void>;
 }
 export interface ReplayDecision {

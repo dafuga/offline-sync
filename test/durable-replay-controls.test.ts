@@ -125,3 +125,27 @@ describe('atomic storage recovery', () => {
 		reopened.close();
 	});
 });
+
+it('commits related operations atomically and rolls every write back on a cache failure', async () => {
+	const store = new IndexedDbOfflineStoreAdapter({
+		databaseName: 'batch',
+		indexedDb: new IDBFactory()
+	});
+	const changes = [operation({ id: 'first' }), operation({ id: 'second' })];
+	await expect(store.commitOperations(changes, [{ body: 'bad cache' } as never])).rejects.toThrow();
+	expect(await store.listOperations()).toEqual([]);
+	await store.commitOperations(changes, []);
+	expect(await store.listOperations()).toHaveLength(2);
+	store.close();
+});
+
+it('fails a blocked database open within the configured deadline', async () => {
+	const factory = { open: () => ({}) } as unknown as IDBFactory;
+	const store = new IndexedDbOfflineStoreAdapter({
+		databaseName: 'blocked',
+		indexedDb: factory,
+		openTimeoutMs: 10
+	});
+	await expect(store.upsertOperation(operation())).rejects.toThrow(/open offline database/i);
+	store.close();
+});

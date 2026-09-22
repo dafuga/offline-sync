@@ -67,12 +67,26 @@ class IndexedDbConnectionAdapter {
     const db = await this.open();
     const transaction = db.transaction([storeName], mode);
     const completion = transactionToPromise(transaction);
-    const result = await requestToPromise(createRequest(transaction.objectStore(storeName)));
-    await completion;
-    return result;
+    try {
+      const [result] = await Promise.all([
+        requestToPromise(createRequest(transaction.objectStore(storeName))),
+        completion
+      ]);
+      return result;
+    } catch (failure) {
+      try {
+        transaction.abort();
+      } catch {}
+      await completion.catch(() => {
+        return;
+      });
+      throw failure;
+    }
   }
   close() {
-    this.dbPromise?.then((database) => database.close());
+    this.dbPromise?.then((database) => database.close()).catch(() => {
+      return;
+    });
     this.dbPromise = null;
   }
   async writeBatch(changes) {
@@ -109,11 +123,10 @@ class IndexedDbConnectionAdapter {
     return this.dbPromise;
   }
   createOpenRequest(factory) {
-    return new Promise((resolve, reject) => {
-      const request = factory.open(this.config.databaseName, this.config.version);
-      request.onerror = () => this.handleOpenError(reject);
-      request.onsuccess = () => this.handleOpenSuccess(request.result, resolve);
-      request.onupgradeneeded = () => this.upgrade(request.result, request.transaction);
+    return openDatabase(factory, this.config, {
+      onError: (reject) => this.handleOpenError(reject),
+      onSuccess: (database, resolve) => this.handleOpenSuccess(database, resolve),
+      onUpgrade: (database, transaction) => this.upgrade(database, transaction)
     });
   }
   handleOpenError(reject) {
@@ -167,6 +180,41 @@ function transactionToPromise(transaction) {
     transaction.onabort = () => reject(new Error("IndexedDB transaction aborted"));
   });
 }
+function openDatabase(factory, config, handlers) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = () => {
+      if (settled)
+        return;
+      settled = true;
+      globalThis.clearTimeout(timer);
+      handlers.onError(reject);
+    };
+    const timer = globalThis.setTimeout(fail, config.openTimeoutMs ?? 3000);
+    try {
+      const request = factory.open(config.databaseName, config.version);
+      request.onerror = fail;
+      request.onsuccess = () => {
+        if (settled) {
+          request.result.close();
+          return;
+        }
+        settled = true;
+        globalThis.clearTimeout(timer);
+        handlers.onSuccess(request.result, resolve);
+      };
+      request.onupgradeneeded = () => {
+        if (settled) {
+          request.transaction?.abort();
+          return;
+        }
+        handlers.onUpgrade(request.result, request.transaction);
+      };
+    } catch {
+      fail();
+    }
+  });
+}
 
 // src/adapters/IndexedDbOfflineStoreAdapter.ts
 var DEFAULT_STORES = {
@@ -184,15 +232,7 @@ class IndexedDbOfflineStoreAdapter {
   constructor(config) {
     this.stores = { ...DEFAULT_STORES, ...config.stores };
     this.now = config.now ?? Date.now;
-    this.connection = new IndexedDbConnectionAdapter({
-      databaseName: config.databaseName,
-      version: config.version ?? 1,
-      stores: this.stores,
-      obsoleteStoreNames: config.obsoleteStoreNames ?? [],
-      openRetryCooldownMs: config.openRetryCooldownMs ?? 60000,
-      indexedDb: config.indexedDb,
-      now: this.now
-    });
+    this.connection = createConnection(config, this.stores, this.now);
     this.queue = new IndexedDbQueueAdapter({
       connection: this.connection,
       store: this.stores.queue,
@@ -224,11 +264,12 @@ class IndexedDbOfflineStoreAdapter {
   async deleteOperation(id, cache = [], removeCacheKeys = []) {
     if (!this.isAvailable())
       throw new Error("Offline storage unavailable");
-    await this.connection.writeBatch([
-      { store: this.stores.queue, remove: id },
-      ...removeCacheKeys.map((key) => ({ store: this.stores.cache, remove: key })),
-      ...cache.map((record) => ({ store: this.stores.cache, put: record }))
-    ]);
+    await commitStoreChanges(this.connection, this.stores, {
+      operations: [],
+      cache,
+      removeCacheKeys,
+      removeOperations: [id]
+    });
   }
   async getPendingOperations(limit = 50) {
     if (!this.isAvailable())
@@ -256,13 +297,12 @@ class IndexedDbOfflineStoreAdapter {
     return this.cache.remove(keys);
   }
   async commitOperation(operation, cache, removeCacheKeys = []) {
+    return this.commitOperations([operation], cache, removeCacheKeys);
+  }
+  async commitOperations(operations, cache, removeCacheKeys = []) {
     if (!this.isAvailable())
       throw new Error("Offline storage unavailable");
-    await this.connection.writeBatch([
-      { store: this.stores.queue, put: operation },
-      ...removeCacheKeys.map((key) => ({ store: this.stores.cache, remove: key })),
-      ...cache.map((record) => ({ store: this.stores.cache, put: record }))
-    ]);
+    await commitStoreChanges(this.connection, this.stores, { operations, cache, removeCacheKeys });
   }
   close() {
     this.connection.close();
@@ -272,6 +312,33 @@ class IndexedDbOfflineStoreAdapter {
       return;
     await this.connection.request(storeName, "readwrite", (store) => store.put(value));
   }
+}
+async function commitStoreChanges(connection, stores, {
+  operations,
+  cache,
+  removeCacheKeys,
+  removeOperations = []
+}) {
+  if (!operations.length && !cache.length && !removeCacheKeys.length && !removeOperations.length)
+    return;
+  await connection.writeBatch([
+    ...operations.map((operation) => ({ store: stores.queue, put: operation })),
+    ...removeOperations.map((id) => ({ store: stores.queue, remove: id })),
+    ...removeCacheKeys.map((key) => ({ store: stores.cache, remove: key })),
+    ...cache.map((record) => ({ store: stores.cache, put: record }))
+  ]);
+}
+function createConnection(config, stores, now) {
+  return new IndexedDbConnectionAdapter({
+    databaseName: config.databaseName,
+    version: config.version ?? 1,
+    stores,
+    obsoleteStoreNames: config.obsoleteStoreNames ?? [],
+    openRetryCooldownMs: config.openRetryCooldownMs ?? 60000,
+    indexedDb: config.indexedDb,
+    now,
+    openTimeoutMs: config.openTimeoutMs ?? 3000
+  });
 }
 // src/services/ReplayOperationService.ts
 class ReplayOperationService {

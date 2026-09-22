@@ -4,6 +4,7 @@ export interface IndexedDbConnectionConfig {
     stores: IndexedDbStoreNames;
     obsoleteStoreNames: readonly string[];
     openRetryCooldownMs: number;
+    openTimeoutMs?: number;
     indexedDb?: IDBFactory;
     now: () => number;
 }
