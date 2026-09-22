@@ -82,6 +82,26 @@ describe('replay recovery and atomic data', () => {
 });
 
 describe('atomic storage recovery', () => {
+	it('discards an operation and restores its cache in the same durable transaction', async () => {
+		const config = { databaseName: 'discard', indexedDb: new IDBFactory() };
+		const store = new IndexedDbOfflineStoreAdapter(config);
+		const original = {
+			key: 'task',
+			url: '/tasks/1',
+			status: 200,
+			statusText: 'OK',
+			headers: {},
+			body: '{"name":"original"}',
+			updatedAt: 1
+		};
+		await store.commitOperation(operation(), [{ ...original, body: '{"name":"pending"}' }]);
+		await store.deleteOperation('operation-1', [original]);
+		store.close();
+		const reopened = new IndexedDbOfflineStoreAdapter(config);
+		expect(await reopened.listOperations()).toEqual([]);
+		expect(await reopened.getCachedResponse('task')).toEqual(original);
+		reopened.close();
+	});
 	it('commits an operation and its projected cache together and recovers after reopening', async () => {
 		const indexedDb = new IDBFactory();
 		const config = { databaseName: 'atomic', indexedDb };

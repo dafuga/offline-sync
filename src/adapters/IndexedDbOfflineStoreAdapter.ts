@@ -78,9 +78,17 @@ export class IndexedDbOfflineStoreAdapter implements OfflineStore {
 		return this.write(this.stores.queue, operation);
 	}
 
-	async deleteOperation(id: string): Promise<void> {
+	async deleteOperation(
+		id: string,
+		cache: CachedResponseRecord[] = [],
+		removeCacheKeys: readonly string[] = []
+	): Promise<void> {
 		if (!this.isAvailable()) throw new Error('Offline storage unavailable');
-		await this.connection.request(this.stores.queue, 'readwrite', (store) => store.delete(id));
+		await this.connection.writeBatch([
+			{ store: this.stores.queue, remove: id },
+			...removeCacheKeys.map((key) => ({ store: this.stores.cache, remove: key })),
+			...cache.map((record) => ({ store: this.stores.cache, put: record }))
+		]);
 	}
 
 	async getPendingOperations(limit = 50): Promise<OfflineOperation[]> {
@@ -110,10 +118,15 @@ export class IndexedDbOfflineStoreAdapter implements OfflineStore {
 		return this.cache.remove(keys);
 	}
 
-	async commitOperation(operation: OfflineOperation, cache: CachedResponseRecord[]): Promise<void> {
+	async commitOperation(
+		operation: OfflineOperation,
+		cache: CachedResponseRecord[],
+		removeCacheKeys: readonly string[] = []
+	): Promise<void> {
 		if (!this.isAvailable()) throw new Error('Offline storage unavailable');
 		await this.connection.writeBatch([
 			{ store: this.stores.queue, put: operation },
+			...removeCacheKeys.map((key) => ({ store: this.stores.cache, remove: key })),
 			...cache.map((record) => ({ store: this.stores.cache, put: record }))
 		]);
 	}

@@ -42,11 +42,19 @@ export interface OfflineStore {
 	saveCachedResponse(record: CachedResponseRecord): Promise<void>;
 	getCachedResponse(key: string): Promise<CachedResponseRecord | null>;
 	upsertOperation(operation: OfflineOperation): Promise<void>;
-	deleteOperation(id: string): Promise<void>;
+	deleteOperation(
+		id: string,
+		cache?: CachedResponseRecord[],
+		removeCacheKeys?: readonly string[]
+	): Promise<void>;
 	getPendingOperations(limit?: number): Promise<OfflineOperation[]>;
 	getStats(): Promise<SyncStats>;
 	setLastSyncedAt(timestamp: number): Promise<void>;
-	commitOperation?(operation: OfflineOperation, cache: CachedResponseRecord[]): Promise<void>;
+	commitOperation?(
+		operation: OfflineOperation,
+		cache: CachedResponseRecord[],
+		removeCacheKeys?: readonly string[]
+	): Promise<void>;
 }
 
 export interface ReplayDecision {
