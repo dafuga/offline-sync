@@ -4,6 +4,7 @@ export interface IndexedDbConnectionConfig {
 	stores: IndexedDbStoreNames;
 	obsoleteStoreNames: readonly string[];
 	openRetryCooldownMs: number;
+	openTimeoutMs?: number;
 	indexedDb?: IDBFactory;
 	now: () => number;
 }
@@ -32,14 +33,49 @@ export class IndexedDbConnectionAdapter {
 		const db = await this.open();
 		const transaction = db.transaction([storeName], mode);
 		const completion = transactionToPromise(transaction);
-		const result = await requestToPromise(createRequest(transaction.objectStore(storeName)));
-		await completion;
-		return result;
+		try {
+			const [result] = await Promise.all([
+				requestToPromise(createRequest(transaction.objectStore(storeName))),
+				completion
+			]);
+			return result;
+		} catch (failure) {
+			try {
+				transaction.abort();
+			} catch {
+				/* Transaction already settled. */
+			}
+			await completion.catch(() => undefined);
+			throw failure;
+		}
 	}
 
 	close(): void {
-		void this.dbPromise?.then((database) => database.close());
+		void this.dbPromise?.then((database) => database.close()).catch(() => undefined);
 		this.dbPromise = null;
+	}
+
+	async writeBatch(
+		changes: readonly { store: string; put?: unknown; remove?: IDBValidKey }[]
+	): Promise<void> {
+		const db = await this.open();
+		const transaction = db.transaction(
+			[...new Set(changes.map((change) => change.store))],
+			'readwrite'
+		);
+		const completion = transactionToPromise(transaction);
+		try {
+			for (const change of changes) {
+				const store = transaction.objectStore(change.store);
+				if (change.remove !== undefined) store.delete(change.remove);
+				else store.put(change.put);
+			}
+		} catch (error) {
+			transaction.abort();
+			await completion.catch(() => undefined);
+			throw error;
+		}
+		await completion;
 	}
 
 	private get factory(): IDBFactory | undefined {
@@ -57,11 +93,10 @@ export class IndexedDbConnectionAdapter {
 	}
 
 	private createOpenRequest(factory: IDBFactory): Promise<IDBDatabase> {
-		return new Promise((resolve, reject) => {
-			const request = factory.open(this.config.databaseName, this.config.version);
-			request.onerror = () => this.handleOpenError(reject);
-			request.onsuccess = () => this.handleOpenSuccess(request.result, resolve);
-			request.onupgradeneeded = () => this.upgrade(request.result, request.transaction);
+		return openDatabase(factory, this.config, {
+			onError: (reject) => this.handleOpenError(reject),
+			onSuccess: (database, resolve) => this.handleOpenSuccess(database, resolve),
+			onUpgrade: (database, transaction) => this.upgrade(database, transaction)
 		});
 	}
 
@@ -124,5 +159,48 @@ function transactionToPromise(transaction: IDBTransaction): Promise<void> {
 		transaction.onerror = () =>
 			reject(transaction.error ?? new Error('IndexedDB transaction failed'));
 		transaction.onabort = () => reject(new Error('IndexedDB transaction aborted'));
+	});
+}
+
+function openDatabase(
+	factory: IDBFactory,
+	config: IndexedDbConnectionConfig,
+	handlers: {
+		onError: (reject: (error: Error) => void) => void;
+		onSuccess: (database: IDBDatabase, resolve: (database: IDBDatabase) => void) => void;
+		onUpgrade: (database: IDBDatabase, transaction: IDBTransaction | null) => void;
+	}
+): Promise<IDBDatabase> {
+	return new Promise((resolve, reject) => {
+		let settled = false;
+		const fail = () => {
+			if (settled) return;
+			settled = true;
+			globalThis.clearTimeout(timer);
+			handlers.onError(reject);
+		};
+		const timer = globalThis.setTimeout(fail, config.openTimeoutMs ?? 3000);
+		try {
+			const request = factory.open(config.databaseName, config.version);
+			request.onerror = fail;
+			request.onsuccess = () => {
+				if (settled) {
+					request.result.close();
+					return;
+				}
+				settled = true;
+				globalThis.clearTimeout(timer);
+				handlers.onSuccess(request.result, resolve);
+			};
+			request.onupgradeneeded = () => {
+				if (settled) {
+					request.transaction?.abort();
+					return;
+				}
+				handlers.onUpgrade(request.result, request.transaction);
+			};
+		} catch {
+			fail();
+		}
 	});
 }

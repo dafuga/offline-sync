@@ -125,3 +125,27 @@ bun run check
 
 `bun run check` runs formatting, TypeScript, ESLint, Vitest, the browser-targeted package
 build, and the Harness audit.
+
+## Durable replay controls
+
+`listOperations()`, `retryOperation(id)`, and `deleteOperation(id)` allow an application
+queue inspector to show, retry, or explicitly discard retained operations.
+`listCachedResponses(prefix)` and `deleteCachedResponses(keys)` support scoped retention.
+`commitOperation(operation, cacheRecords)` commits the operation and its local projections
+in one IndexedDB transaction. Alternatively pass cache records as the second argument to
+`engine.enqueueOperation(input, cacheRecords)` when using a store with this capability.
+Durable queue writes reject unavailable storage; optional response-cache writes retain
+existing behavior. Never acknowledge a local save until its durable write resolves.
+
+Engine and replay configuration accept these optional application hooks:
+
+- `canReplay(operation)` defers a dependent or out-of-scope operation without consuming attempts.
+- `classifyResponse(context)` returns `{ status: 'resolved' | 'retry' | 'blocked' | 'failed', reason? }`.
+- `onResolved(context)` must finish persisting canonical records/ID mappings before acknowledgment.
+- Engine `onError(error)` receives automatic-flush errors (including storage failures).
+
+Blocked operations retain their original payload and do not automatically retry. They
+count in `failedCount` for compatibility with existing statistics consumers. A failed
+reconciliation retains the operation for retry. Only acknowledged operations update
+`lastSyncedAt`. Applications remain responsible for idempotent server writes, user-safe
+conflict resolution, authorization at replay time, and media durability.

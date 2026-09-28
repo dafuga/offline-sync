@@ -1,4 +1,4 @@
-export type OfflineOperationStatus = 'pending' | 'syncing' | 'failed';
+export type OfflineOperationStatus = 'pending' | 'syncing' | 'failed' | 'blocked';
 export type OfflineMutationMethod = 'POST' | 'PATCH' | 'PUT' | 'DELETE';
 export type OfflineFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 export interface CachedResponseRecord {
@@ -35,10 +35,21 @@ export interface OfflineStore {
     saveCachedResponse(record: CachedResponseRecord): Promise<void>;
     getCachedResponse(key: string): Promise<CachedResponseRecord | null>;
     upsertOperation(operation: OfflineOperation): Promise<void>;
-    deleteOperation(id: string): Promise<void>;
+    deleteOperation(id: string, cache?: CachedResponseRecord[], removeCacheKeys?: readonly string[]): Promise<void>;
     getPendingOperations(limit?: number): Promise<OfflineOperation[]>;
     getStats(): Promise<SyncStats>;
     setLastSyncedAt(timestamp: number): Promise<void>;
+    commitOperations?(operations: readonly OfflineOperation[], cache: readonly CachedResponseRecord[], removeCacheKeys?: readonly string[]): Promise<void>;
+    commitOperation?(operation: OfflineOperation, cache: CachedResponseRecord[], removeCacheKeys?: readonly string[]): Promise<void>;
+}
+export interface ReplayDecision {
+    status: 'resolved' | 'retry' | 'blocked' | 'failed';
+    reason?: string;
+}
+export interface ReplayHooks {
+    canReplay?: (operation: OfflineOperation) => boolean | Promise<boolean>;
+    classifyResponse?: (context: ReplayResolutionContext) => ReplayDecision | Promise<ReplayDecision>;
+    onResolved?: (context: ReplayResolutionContext) => void | Promise<void>;
 }
 export interface ReplayResolutionContext {
     operation: OfflineOperation;

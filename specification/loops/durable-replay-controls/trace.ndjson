@@ -1,0 +1,5 @@
+{"event":"loop.created","timestamp":"2026-09-22T12:15:46.313Z","name":"durable-replay-controls","goal":"Durably save offline changes and replay them with recoverable dependencies and conflicts while retaining Fluora compatibility","template":"feature","templateLineage":["feature"]}
+{"event":"step.completed","timestamp":"2026-09-22T12:22:38.948Z","loop":"durable-replay-controls","step":"spec","evidence":"Accepted spec covers durable writes, recovery hooks, and compatibility"}
+{"event":"step.completed","timestamp":"2026-09-22T12:22:38.970Z","loop":"durable-replay-controls","step":"implement","evidence":"IndexedDB atomic writes and replay hooks implemented"}
+{"event":"step.completed","timestamp":"2026-09-22T12:22:38.993Z","loop":"durable-replay-controls","step":"test","evidence":"Six unchanged regressions failed before and passed after; all 19 tests passed"}
+{"event":"step.completed","timestamp":"2026-09-22T12:22:39.015Z","loop":"durable-replay-controls","step":"verify","evidence":"bun run check passed formatting, typecheck, lint, all tests, build, and audit"}

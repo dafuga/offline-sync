@@ -1,5 +1,5 @@
-import type { OfflineOperation, OfflineFetch, OfflineOperationInput, OfflineStore, ReplayHeadersPolicy, ReplayResolutionPolicy, SyncStats } from '../models/OfflineSync.types';
-export interface OfflineSyncEngineServiceConfig {
+import type { OfflineOperation, OfflineFetch, OfflineOperationInput, OfflineStore, ReplayHeadersPolicy, ReplayResolutionPolicy, SyncStats, ReplayHooks, CachedResponseRecord } from '../models/OfflineSync.types';
+export interface OfflineSyncEngineServiceConfig extends ReplayHooks {
     store: OfflineStore;
     isOnline: () => boolean;
     fetch?: OfflineFetch;
@@ -13,6 +13,7 @@ export interface OfflineSyncEngineServiceConfig {
     applyReplayHeaders?: ReplayHeadersPolicy;
     shouldTreatAsResolved?: ReplayResolutionPolicy;
     onStats?: (stats: SyncStats) => void;
+    onError?: (error: unknown) => void;
 }
 export declare class OfflineSyncEngineService {
     private readonly config;
@@ -26,10 +27,9 @@ export declare class OfflineSyncEngineService {
     start(): Promise<void>;
     stop(): void;
     refreshStats(): Promise<SyncStats>;
-    enqueueOperation(input: OfflineOperationInput): Promise<OfflineOperation>;
+    enqueueOperation(input: OfflineOperationInput, cache?: CachedResponseRecord[]): Promise<OfflineOperation>;
     flushQueue(): Promise<void>;
     replayQueuedOperation(operation: OfflineOperation): Promise<Response | null>;
     private runSerialized;
-    private recordSync;
     private flushWhenNeeded;
 }

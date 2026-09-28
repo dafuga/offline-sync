@@ -6,10 +6,12 @@ import type {
 	OfflineStore,
 	ReplayHeadersPolicy,
 	ReplayResolutionPolicy,
-	SyncStats
+	SyncStats,
+	ReplayHooks,
+	CachedResponseRecord
 } from '../models/OfflineSync.types';
 
-export interface OfflineSyncEngineServiceConfig {
+export interface OfflineSyncEngineServiceConfig extends ReplayHooks {
 	store: OfflineStore;
 	isOnline: () => boolean;
 	fetch?: OfflineFetch;
@@ -23,6 +25,7 @@ export interface OfflineSyncEngineServiceConfig {
 	applyReplayHeaders?: ReplayHeadersPolicy;
 	shouldTreatAsResolved?: ReplayResolutionPolicy;
 	onStats?: (stats: SyncStats) => void;
+	onError?: (error: unknown) => void;
 }
 
 const EMPTY_STATS: SyncStats = { pendingCount: 0, failedCount: 0, lastSyncedAt: null };
@@ -47,7 +50,10 @@ export class OfflineSyncEngineService {
 			maxRetryMs: config.maxRetryMs ?? 60_000,
 			credentials: config.credentials,
 			applyReplayHeaders: config.applyReplayHeaders,
-			shouldTreatAsResolved: config.shouldTreatAsResolved
+			shouldTreatAsResolved: config.shouldTreatAsResolved,
+			canReplay: config.canReplay,
+			classifyResponse: config.classifyResponse,
+			onResolved: config.onResolved
 		});
 	}
 
@@ -55,7 +61,7 @@ export class OfflineSyncEngineService {
 		await this.refreshStats();
 		if (this.flushTimer) return;
 		this.flushTimer = globalThis.setInterval(
-			() => void this.flushWhenNeeded(),
+			() => void this.flushWhenNeeded().catch((error) => this.config.onError?.(error)),
 			this.config.flushIntervalMs ?? 3_000
 		);
 	}
@@ -71,7 +77,11 @@ export class OfflineSyncEngineService {
 		return this.stats;
 	}
 
-	async enqueueOperation(input: OfflineOperationInput): Promise<OfflineOperation> {
+	async enqueueOperation(
+		input: OfflineOperationInput,
+		cache: CachedResponseRecord[] = []
+	): Promise<OfflineOperation> {
+		if (!this.config.store.isAvailable()) throw new Error('Offline storage unavailable');
 		const operation: OfflineOperation = {
 			...input,
 			id: this.createId(),
@@ -80,7 +90,10 @@ export class OfflineSyncEngineService {
 			status: 'pending',
 			lastError: null
 		};
-		await this.config.store.upsertOperation(operation);
+		if (cache.length && !this.config.store.commitOperation)
+			throw new Error('Atomic cache writes unsupported');
+		if (cache.length) await this.config.store.commitOperation!(operation, cache);
+		else await this.config.store.upsertOperation(operation);
 		await this.refreshStats();
 		return operation;
 	}
@@ -93,7 +106,7 @@ export class OfflineSyncEngineService {
 				if (!this.config.isOnline()) break;
 				await this.replay.run(operation);
 			}
-			await this.recordSync();
+			await this.refreshStats();
 		});
 	}
 
@@ -101,7 +114,7 @@ export class OfflineSyncEngineService {
 		if (!this.config.isOnline()) return Promise.resolve(null);
 		return this.runSerialized(async () => {
 			const response = await this.replay.run(operation);
-			await this.recordSync();
+			await this.refreshStats();
 			return response;
 		});
 	}
@@ -113,11 +126,6 @@ export class OfflineSyncEngineService {
 			() => undefined
 		);
 		return result;
-	}
-
-	private async recordSync(): Promise<void> {
-		await this.config.store.setLastSyncedAt(this.now());
-		await this.refreshStats();
 	}
 
 	private async flushWhenNeeded(): Promise<void> {

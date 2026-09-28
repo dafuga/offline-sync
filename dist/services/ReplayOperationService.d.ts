@@ -1,5 +1,5 @@
-import type { OfflineOperation, OfflineFetch, OfflineStore, ReplayHeadersPolicy, ReplayResolutionPolicy } from '../models/OfflineSync.types';
-export interface ReplayOperationServiceConfig {
+import type { OfflineOperation, OfflineFetch, OfflineStore, ReplayHeadersPolicy, ReplayResolutionPolicy, ReplayHooks } from '../models/OfflineSync.types';
+export interface ReplayOperationServiceConfig extends ReplayHooks {
     store: OfflineStore;
     fetch: OfflineFetch;
     now: () => number;
@@ -14,7 +14,8 @@ export declare class ReplayOperationService {
     private readonly config;
     constructor(config: ReplayOperationServiceConfig);
     run(operation: OfflineOperation): Promise<Response | null>;
+    private handleResponse;
     private send;
-    private isPolicyResolved;
+    private decision;
     private retry;
 }
