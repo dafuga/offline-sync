@@ -15,7 +15,15 @@ existing dependency. Application policy stays behind adapters and hooks.
   advances the last-success timestamp.
 - Existing APIs and legacy resolution policies remain compatible.
 - Red-green regressions, checks/build/audit, and consumer compatibility pass.
-- Changes remain on a feature branch and draft PR, pinned by immutable commit.
+- BuildFlexity continues to pin the immutable candidate commit while this
+  reusable package change lands on `main`; Fluora's installed pin is unchanged.
+
+## Verification
+
+- `bun run check` passed on the feature head: formatting, type checking, lint,
+  22 unit tests in six files, build, and Harness audit.
+- GitHub PR #1 has no required checks or reviews; this merge does not publish
+  a package version. Native BuildFlexity acceptance remains a separate gate.
 
 ## Future Enhancements
 
