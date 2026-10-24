@@ -2,9 +2,11 @@
 	"name": "recover-closed-indexeddb",
 	"goal": "Cached reads and atomic queued writes recover after iOS closes an IndexedDB connection without losing data or retrying started transactions",
 	"createdAt": "2026-10-24T18:29:36.412Z",
-	"updatedAt": "2026-10-24T18:31:59.109Z",
+	"updatedAt": "2026-10-24T18:39:00.880Z",
 	"template": "bug-fix",
-	"templateLineage": ["bug-fix"],
+	"templateLineage": [
+		"bug-fix"
+	],
 	"enforceOrder": true,
 	"regressionCommits": 1,
 	"steps": [
@@ -25,12 +27,16 @@
 		{
 			"id": "red",
 			"title": "Strengthen the existing standardized test; commit it before repair, run it failing with loop record --phase red, and preserve the assertion.",
-			"status": "pending"
+			"status": "complete",
+			"completedAt": "2026-10-24T18:39:00.504Z",
+			"evidence": "Unchanged standardized test at b107aed: InvalidStateError in cache read, cache write, queue write, atomic write and concurrent read; record stored by Harness"
 		},
 		{
 			"id": "implement",
 			"title": "Implement the smallest repair without weakening the regression test.",
-			"status": "pending"
+			"status": "complete",
+			"completedAt": "2026-10-24T18:39:00.880Z",
+			"evidence": "One guarded transaction-creation retry; compare cached open promise so concurrent recovery preserves a newer connection; no retries after transaction creation"
 		},
 		{
 			"id": "green",
