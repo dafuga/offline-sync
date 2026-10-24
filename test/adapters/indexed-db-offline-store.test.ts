@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-	indexedDB,
-	IDBDatabase as FakeDatabase,
-	IDBObjectStore as FakeStore
-} from 'fake-indexeddb';
+import { indexedDB, IDBDatabase as Db, IDBObjectStore as Store } from 'fake-indexeddb';
 import { IndexedDbOfflineStoreAdapter } from '../../src/adapters/IndexedDbOfflineStoreAdapter';
 import type { CachedResponseRecord, OfflineOperation } from '../../src/models/OfflineSync.types';
 
@@ -90,7 +86,7 @@ describe('IndexedDbOfflineStoreAdapter errors', () => {
 		async (name) => {
 			const adapter = createAdapter();
 			await adapter.saveCachedResponse(cachedResponse());
-			const get = vi.spyOn(FakeStore.prototype, 'get').mockImplementationOnce(() => {
+			const get = vi.spyOn(Store.prototype, 'get').mockImplementationOnce(() => {
 				throw new DOMException(name, name);
 			});
 			try {
@@ -210,8 +206,8 @@ function createLegacyDatabase(name: string, record: CachedResponseRecord): Promi
 }
 
 function closeNextConnection(): void {
-	const transaction = FakeDatabase.prototype.transaction;
-	vi.spyOn(FakeDatabase.prototype, 'transaction').mockImplementationOnce(function (
+	const transaction = Db.prototype.transaction;
+	vi.spyOn(Db.prototype, 'transaction').mockImplementationOnce(function (
 		this: IDBDatabase,
 		...args
 	) {
