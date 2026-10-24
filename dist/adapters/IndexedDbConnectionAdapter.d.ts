@@ -19,7 +19,7 @@ export declare class IndexedDbConnectionAdapter {
     private openRetryAfterMs;
     constructor(config: IndexedDbConnectionConfig);
     isAvailable(): boolean;
-    request<T>(storeName: string, mode: IDBTransactionMode, createRequest: (store: IDBObjectStore) => IDBRequest<T>): Promise<T>;
+    request<T>(storeName: string, mode: IDBTransactionMode, createRequest: (store: IDBObjectStore) => IDBRequest<T> | Promise<T>): Promise<T>;
     close(): void;
     writeBatch(changes: readonly {
         store: string;

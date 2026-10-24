@@ -10,12 +10,32 @@ export class IndexedDbCacheAdapter {
 	constructor(private readonly config: IndexedDbCacheAdapterConfig) {}
 
 	async list(prefix = ''): Promise<CachedResponseRecord[]> {
-		const records = await this.config.connection.request<CachedResponseRecord[]>(
+		return this.config.connection.request<CachedResponseRecord[]>(
 			this.config.store,
 			'readonly',
-			(store) => store.getAll()
+			(store) => (prefix ? this.readPrefix(store, prefix) : store.getAll())
 		);
-		return records.filter((record) => record.key.startsWith(prefix));
+	}
+
+	private readPrefix(store: IDBObjectStore, prefix: string): Promise<CachedResponseRecord[]> {
+		return new Promise((resolve, reject) => {
+			const records: CachedResponseRecord[] = [];
+			const cursorRequest = store.openKeyCursor();
+			cursorRequest.onerror = () => reject(cursorRequest.error);
+			cursorRequest.onsuccess = () => {
+				const cursor = cursorRequest.result;
+				if (!cursor) return resolve(records);
+				if (typeof cursor.key !== 'string') return cursor.continue();
+				if (cursor.key < prefix) return cursor.continue(prefix);
+				if (!cursor.key.startsWith(prefix)) return resolve(records);
+				const recordRequest = store.get(cursor.primaryKey);
+				recordRequest.onerror = () => reject(recordRequest.error);
+				recordRequest.onsuccess = () => {
+					records.push(recordRequest.result as CachedResponseRecord);
+					cursor.continue();
+				};
+			};
+		});
 	}
 
 	async remove(keys: readonly string[]): Promise<void> {

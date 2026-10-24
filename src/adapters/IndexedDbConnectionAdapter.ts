@@ -28,7 +28,7 @@ export class IndexedDbConnectionAdapter {
 	async request<T>(
 		storeName: string,
 		mode: IDBTransactionMode,
-		createRequest: (store: IDBObjectStore) => IDBRequest<T>
+		createRequest: (store: IDBObjectStore) => IDBRequest<T> | Promise<T>
 	): Promise<T> {
 		const db = await this.open();
 		const transaction = db.transaction([storeName], mode);
@@ -146,7 +146,8 @@ function createIndex(store: IDBObjectStore, name: string): void {
 	if (!store.indexNames.contains(name)) store.createIndex(name, name, { unique: false });
 }
 
-function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
+function requestToPromise<T>(request: IDBRequest<T> | Promise<T>): Promise<T> {
+	if ('then' in request) return request;
 	return new Promise((resolve, reject) => {
 		request.onsuccess = () => resolve(request.result);
 		request.onerror = () => reject(request.error ?? new Error('IndexedDB request failed'));
