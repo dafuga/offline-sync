@@ -1,0 +1,1 @@
+{"event":"loop.created","timestamp":"2026-10-24T18:29:36.412Z","name":"recover-closed-indexeddb","goal":"Cached reads and atomic queued writes recover after iOS closes an IndexedDB connection without losing data or retrying started transactions","template":"bug-fix","templateLineage":["bug-fix"]}
