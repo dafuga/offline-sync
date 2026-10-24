@@ -209,7 +209,10 @@ function createLegacyDatabase(name: string, record: CachedResponseRecord): Promi
 
 function closeNextConnection(): void {
 	const transaction = FakeDatabase.prototype.transaction;
-	vi.spyOn(FakeDatabase.prototype, 'transaction').mockImplementationOnce(function (...args) {
+	vi.spyOn(FakeDatabase.prototype, 'transaction').mockImplementationOnce(function (
+		this: IDBDatabase,
+		...args
+	) {
 		this.close();
 		return transaction.apply(this, args);
 	});
