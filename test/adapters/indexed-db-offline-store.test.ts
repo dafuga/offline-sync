@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { indexedDB } from 'fake-indexeddb';
+import { indexedDB, IDBDatabase as Db, IDBObjectStore as Store } from 'fake-indexeddb';
 import { IndexedDbOfflineStoreAdapter } from '../../src/adapters/IndexedDbOfflineStoreAdapter';
 import type { CachedResponseRecord, OfflineOperation } from '../../src/models/OfflineSync.types';
 
@@ -35,27 +35,70 @@ it('reads metadata without materializing unrelated large cached response bodies'
 });
 
 describe('IndexedDbOfflineStoreAdapter', () => {
-	it('stores cache records, ordered operations, and sync metadata', async () => {
-		const adapter = createAdapter();
-		const cacheRecord = cachedResponse();
-		await adapter.saveCachedResponse(cacheRecord);
-		await adapter.upsertOperation(queuedOperation({ id: 'later', createdAt: 20 }));
-		await adapter.upsertOperation(queuedOperation({ id: 'first', createdAt: 10 }));
+	it.each(['open', 'read', 'cache-write', 'queue-write', 'atomic-write', 'concurrent-read'])(
+		'stores cache records, ordered operations, and sync metadata after %s lifecycle',
+		async (lifecycle) => {
+			const adapter = createAdapter();
+			const cacheRecord = cachedResponse();
+			await adapter.saveCachedResponse(cacheRecord);
+			if (lifecycle === 'cache-write') {
+				closeNextConnection();
+				await adapter.saveCachedResponse(cacheRecord);
+			}
+			if (lifecycle === 'queue-write') closeNextConnection();
+			await adapter.upsertOperation(queuedOperation({ id: 'later', createdAt: 20 }));
+			await adapter.upsertOperation(queuedOperation({ id: 'first', createdAt: 10 }));
 
-		await expect(adapter.getCachedResponse(cacheRecord.key)).resolves.toEqual(cacheRecord);
-		await expect(adapter.getPendingOperations()).resolves.toMatchObject([
-			{ id: 'first' },
-			{ id: 'later' }
-		]);
+			if (lifecycle === 'atomic-write') {
+				closeNextConnection();
+				await adapter.commitOperation(queuedOperation({ id: 'first', createdAt: 10 }), [
+					cacheRecord
+				]);
+			}
+			if (lifecycle === 'read' || lifecycle === 'concurrent-read') closeNextConnection();
+			if (lifecycle === 'concurrent-read')
+				await expect(
+					Promise.all([
+						adapter.getCachedResponse(cacheRecord.key),
+						adapter.getCachedResponse(cacheRecord.key)
+					])
+				).resolves.toEqual([cacheRecord, cacheRecord]);
+			await expect(adapter.getCachedResponse(cacheRecord.key)).resolves.toEqual(cacheRecord);
+			await expect(adapter.getPendingOperations()).resolves.toMatchObject([
+				{ id: 'first' },
+				{ id: 'later' }
+			]);
 
-		await adapter.setLastSyncedAt(1234);
-		await expect(adapter.getStats()).resolves.toEqual({
-			pendingCount: 2,
-			failedCount: 0,
-			lastSyncedAt: 1234
-		});
-		adapter.close();
-	});
+			await adapter.setLastSyncedAt(1234);
+			await expect(adapter.getStats()).resolves.toEqual({
+				pendingCount: 2,
+				failedCount: 0,
+				lastSyncedAt: 1234
+			});
+			adapter.close();
+		}
+	);
+});
+
+describe('IndexedDbOfflineStoreAdapter errors', () => {
+	it.each(['AbortError', 'QuotaExceededError', 'InvalidStateError'])(
+		'does not retry a %s after a transaction starts',
+		async (name) => {
+			const adapter = createAdapter();
+			await adapter.saveCachedResponse(cachedResponse());
+			const get = vi.spyOn(Store.prototype, 'get').mockImplementationOnce(() => {
+				throw new DOMException(name, name);
+			});
+			try {
+				await expect(adapter.getCachedResponse(cachedResponse().key)).rejects.toMatchObject({
+					name
+				});
+				expect(get).toHaveBeenCalledTimes(1);
+			} finally {
+				adapter.close();
+			}
+		}
+	);
 
 	it('backs off after an IndexedDB open failure', async () => {
 		let now = 1_000;
@@ -159,5 +202,16 @@ function createLegacyDatabase(name: string, record: CachedResponseRecord): Promi
 			resolve();
 		};
 		request.onerror = () => reject(request.error);
+	});
+}
+
+function closeNextConnection(): void {
+	const transaction = Db.prototype.transaction;
+	vi.spyOn(Db.prototype, 'transaction').mockImplementationOnce(function (
+		this: IDBDatabase,
+		...args
+	) {
+		this.close();
+		return transaction.apply(this, args);
 	});
 }

@@ -30,8 +30,7 @@ export class IndexedDbConnectionAdapter {
 		mode: IDBTransactionMode,
 		createRequest: (store: IDBObjectStore) => IDBRequest<T> | Promise<T>
 	): Promise<T> {
-		const db = await this.open();
-		const transaction = db.transaction([storeName], mode);
+		const transaction = await this.transaction([storeName], mode);
 		const completion = transactionToPromise(transaction);
 		try {
 			const [result] = await Promise.all([
@@ -58,8 +57,7 @@ export class IndexedDbConnectionAdapter {
 	async writeBatch(
 		changes: readonly { store: string; put?: unknown; remove?: IDBValidKey }[]
 	): Promise<void> {
-		const db = await this.open();
-		const transaction = db.transaction(
+		const transaction = await this.transaction(
 			[...new Set(changes.map((change) => change.store))],
 			'readwrite'
 		);
@@ -78,6 +76,19 @@ export class IndexedDbConnectionAdapter {
 		await completion;
 	}
 
+	private async transaction(stores: string[], mode: IDBTransactionMode): Promise<IDBTransaction> {
+		const pending = this.open();
+		const database = await pending;
+		try {
+			return database.transaction(stores, mode);
+		} catch (error) {
+			// Only creation can be retried: no request or write has started yet.
+			if ((error as { name?: string }).name !== 'InvalidStateError') throw error;
+			if (this.dbPromise === pending) this.close();
+			return (await this.open()).transaction(stores, mode);
+		}
+	}
+
 	private get factory(): IDBFactory | undefined {
 		return this.config.indexedDb ?? globalThis.indexedDB;
 	}
@@ -88,16 +99,12 @@ export class IndexedDbConnectionAdapter {
 			return Promise.reject(new Error('Offline database is temporarily unavailable'));
 		}
 
-		this.dbPromise = this.createOpenRequest(this.factory);
-		return this.dbPromise;
-	}
-
-	private createOpenRequest(factory: IDBFactory): Promise<IDBDatabase> {
-		return openDatabase(factory, this.config, {
+		this.dbPromise = openDatabase(this.factory, this.config, {
 			onError: (reject) => this.handleOpenError(reject),
 			onSuccess: (database, resolve) => this.handleOpenSuccess(database, resolve),
 			onUpgrade: (database, transaction) => this.upgrade(database, transaction)
 		});
+		return this.dbPromise;
 	}
 
 	private handleOpenError(reject: (error: Error) => void): void {
