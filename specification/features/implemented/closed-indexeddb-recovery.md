@@ -12,7 +12,7 @@ Coverage gap: the standardized adapter storage scenario only uses a continuously
 - A closed connection is reopened once, retaining cached data and queue ordering.
 - Concurrent recovery does not close a newer replacement connection.
 - Errors after a transaction starts, including quota and abort errors, are not retried.
-- Complete library check passes and BuildFlexity verifies existing downloaded plan pages on the connected iPhone.
+- Complete library check passes (31 tests, type, lint, formatting, build and Harness audit). BuildFlexity tracks connected-iPhone acceptance in its offline-closed-connection-recovery feature before its dev/Stage release.
 
 ## Future Enhancements
 

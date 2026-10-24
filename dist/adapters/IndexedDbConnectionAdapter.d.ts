@@ -26,9 +26,9 @@ export declare class IndexedDbConnectionAdapter {
         put?: unknown;
         remove?: IDBValidKey;
     }[]): Promise<void>;
+    private transaction;
     private get factory();
     private open;
-    private createOpenRequest;
     private handleOpenError;
     private handleOpenSuccess;
     private upgrade;

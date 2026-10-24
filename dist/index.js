@@ -87,8 +87,7 @@ class IndexedDbConnectionAdapter {
     return Boolean(this.factory) && this.config.now() >= this.openRetryAfterMs;
   }
   async request(storeName, mode, createRequest) {
-    const db = await this.open();
-    const transaction = db.transaction([storeName], mode);
+    const transaction = await this.transaction([storeName], mode);
     const completion = transactionToPromise(transaction);
     try {
       const [result] = await Promise.all([
@@ -113,8 +112,7 @@ class IndexedDbConnectionAdapter {
     this.dbPromise = null;
   }
   async writeBatch(changes) {
-    const db = await this.open();
-    const transaction = db.transaction([...new Set(changes.map((change) => change.store))], "readwrite");
+    const transaction = await this.transaction([...new Set(changes.map((change) => change.store))], "readwrite");
     const completion = transactionToPromise(transaction);
     try {
       for (const change of changes) {
@@ -133,6 +131,19 @@ class IndexedDbConnectionAdapter {
     }
     await completion;
   }
+  async transaction(stores, mode) {
+    const pending = this.open();
+    const database = await pending;
+    try {
+      return database.transaction(stores, mode);
+    } catch (error) {
+      if (error.name !== "InvalidStateError")
+        throw error;
+      if (this.dbPromise === pending)
+        this.close();
+      return (await this.open()).transaction(stores, mode);
+    }
+  }
   get factory() {
     return this.config.indexedDb ?? globalThis.indexedDB;
   }
@@ -142,15 +153,12 @@ class IndexedDbConnectionAdapter {
     if (!this.isAvailable() || !this.factory) {
       return Promise.reject(new Error("Offline database is temporarily unavailable"));
     }
-    this.dbPromise = this.createOpenRequest(this.factory);
-    return this.dbPromise;
-  }
-  createOpenRequest(factory) {
-    return openDatabase(factory, this.config, {
+    this.dbPromise = openDatabase(this.factory, this.config, {
       onError: (reject) => this.handleOpenError(reject),
       onSuccess: (database, resolve) => this.handleOpenSuccess(database, resolve),
       onUpgrade: (database, transaction) => this.upgrade(database, transaction)
     });
+    return this.dbPromise;
   }
   handleOpenError(reject) {
     this.dbPromise = null;
@@ -571,9 +579,9 @@ function buildCacheKey(url) {
   return `GET:${url}`;
 }
 export {
-  IndexedDbOfflineStoreAdapter,
-  OfflineSyncEngineService,
-  ReplayOperationService,
+  reconcileVersionedDataset,
   buildCacheKey,
-  reconcileVersionedDataset
+  ReplayOperationService,
+  OfflineSyncEngineService,
+  IndexedDbOfflineStoreAdapter
 };
