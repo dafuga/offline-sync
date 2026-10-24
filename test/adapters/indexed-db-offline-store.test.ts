@@ -6,7 +6,32 @@ import type { CachedResponseRecord, OfflineOperation } from '../../src/models/Of
 const databaseNames: string[] = [];
 
 afterEach(async () => {
+	vi.restoreAllMocks();
 	await Promise.all(databaseNames.splice(0).map((name) => deleteDatabase(name)));
+});
+
+it('reads metadata without materializing unrelated large cached response bodies', async () => {
+	const adapter = createAdapter();
+	const metadata = { ...cachedResponse(), key: '/@downloads/1', body: '{"ready":true}' };
+	const unicode = { ...metadata, key: '/@downloads/\uffff/2' };
+	try {
+		await adapter.saveCachedResponse(metadata);
+		await adapter.saveCachedResponse(unicode);
+		for (const key of ['!before-metadata', '/projects/1/plan-pages'])
+			await adapter.saveCachedResponse({ ...cachedResponse(), key, body: 'x'.repeat(2 ** 20) });
+		let materializedBytes = 0;
+		const clone = globalThis.structuredClone;
+		vi.spyOn(globalThis, 'structuredClone').mockImplementation((value, options) => {
+			if (value && typeof value === 'object' && 'body' in value && typeof value.body === 'string')
+				materializedBytes += value.body.length;
+			return clone(value, options);
+		});
+		await expect(adapter.listCachedResponses('/@downloads/')).resolves.toEqual([metadata, unicode]);
+		expect(materializedBytes).toBe(metadata.body.length + unicode.body.length);
+		await expect(adapter.listCachedResponses('/@missing/')).resolves.toEqual([]);
+	} finally {
+		adapter.close();
+	}
 });
 
 describe('IndexedDbOfflineStoreAdapter', () => {

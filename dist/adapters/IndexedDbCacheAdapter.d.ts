@@ -8,5 +8,6 @@ export declare class IndexedDbCacheAdapter {
     private readonly config;
     constructor(config: IndexedDbCacheAdapterConfig);
     list(prefix?: string): Promise<CachedResponseRecord[]>;
+    private readPrefix;
     remove(keys: readonly string[]): Promise<void>;
 }

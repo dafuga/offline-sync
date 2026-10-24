@@ -42,8 +42,31 @@ class IndexedDbCacheAdapter {
     this.config = config;
   }
   async list(prefix = "") {
-    const records = await this.config.connection.request(this.config.store, "readonly", (store) => store.getAll());
-    return records.filter((record) => record.key.startsWith(prefix));
+    return this.config.connection.request(this.config.store, "readonly", (store) => prefix ? this.readPrefix(store, prefix) : store.getAll());
+  }
+  readPrefix(store, prefix) {
+    return new Promise((resolve, reject) => {
+      const records = [];
+      const cursorRequest = store.openKeyCursor();
+      cursorRequest.onerror = () => reject(cursorRequest.error);
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (!cursor)
+          return resolve(records);
+        if (typeof cursor.key !== "string")
+          return cursor.continue();
+        if (cursor.key < prefix)
+          return cursor.continue(prefix);
+        if (!cursor.key.startsWith(prefix))
+          return resolve(records);
+        const recordRequest = store.get(cursor.primaryKey);
+        recordRequest.onerror = () => reject(recordRequest.error);
+        recordRequest.onsuccess = () => {
+          records.push(recordRequest.result);
+          cursor.continue();
+        };
+      };
+    });
   }
   async remove(keys) {
     if (!keys.length)
@@ -168,6 +191,8 @@ function createIndex(store, name) {
     store.createIndex(name, name, { unique: false });
 }
 function requestToPromise(request) {
+  if ("then" in request)
+    return request;
   return new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error("IndexedDB request failed"));
@@ -546,9 +571,9 @@ function buildCacheKey(url) {
   return `GET:${url}`;
 }
 export {
-  reconcileVersionedDataset,
-  buildCacheKey,
-  ReplayOperationService,
+  IndexedDbOfflineStoreAdapter,
   OfflineSyncEngineService,
-  IndexedDbOfflineStoreAdapter
+  ReplayOperationService,
+  buildCacheKey,
+  reconcileVersionedDataset
 };
