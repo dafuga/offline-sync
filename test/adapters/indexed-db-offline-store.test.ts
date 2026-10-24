@@ -82,7 +82,9 @@ describe('IndexedDbOfflineStoreAdapter', () => {
 			adapter.close();
 		}
 	);
+});
 
+describe('IndexedDbOfflineStoreAdapter errors', () => {
 	it.each(['AbortError', 'QuotaExceededError', 'InvalidStateError'])(
 		'does not retry a %s after a transaction starts',
 		async (name) => {
