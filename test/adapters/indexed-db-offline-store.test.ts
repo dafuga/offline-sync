@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { indexedDB, IDBDatabase as FakeDatabase } from 'fake-indexeddb';
+import {
+	indexedDB,
+	IDBDatabase as FakeDatabase,
+	IDBObjectStore as FakeStore
+} from 'fake-indexeddb';
 import { IndexedDbOfflineStoreAdapter } from '../../src/adapters/IndexedDbOfflineStoreAdapter';
 import type { CachedResponseRecord, OfflineOperation } from '../../src/models/OfflineSync.types';
 
@@ -40,8 +44,11 @@ describe('IndexedDbOfflineStoreAdapter', () => {
 		async (lifecycle) => {
 			const adapter = createAdapter();
 			const cacheRecord = cachedResponse();
-			if (lifecycle === 'cache-write') closeNextConnection();
 			await adapter.saveCachedResponse(cacheRecord);
+			if (lifecycle === 'cache-write') {
+				closeNextConnection();
+				await adapter.saveCachedResponse(cacheRecord);
+			}
 			if (lifecycle === 'queue-write') closeNextConnection();
 			await adapter.upsertOperation(queuedOperation({ id: 'later', createdAt: 20 }));
 			await adapter.upsertOperation(queuedOperation({ id: 'first', createdAt: 10 }));
@@ -73,6 +80,25 @@ describe('IndexedDbOfflineStoreAdapter', () => {
 				lastSyncedAt: 1234
 			});
 			adapter.close();
+		}
+	);
+
+	it.each(['AbortError', 'QuotaExceededError', 'InvalidStateError'])(
+		'does not retry a %s after a transaction starts',
+		async (name) => {
+			const adapter = createAdapter();
+			await adapter.saveCachedResponse(cachedResponse());
+			const get = vi.spyOn(FakeStore.prototype, 'get').mockImplementationOnce(() => {
+				throw new DOMException(name, name);
+			});
+			try {
+				await expect(adapter.getCachedResponse(cachedResponse().key)).rejects.toMatchObject({
+					name
+				});
+				expect(get).toHaveBeenCalledTimes(1);
+			} finally {
+				adapter.close();
+			}
 		}
 	);
 
