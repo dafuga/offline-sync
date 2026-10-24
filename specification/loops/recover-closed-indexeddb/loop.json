@@ -2,23 +2,25 @@
 	"name": "recover-closed-indexeddb",
 	"goal": "Cached reads and atomic queued writes recover after iOS closes an IndexedDB connection without losing data or retrying started transactions",
 	"createdAt": "2026-10-24T18:29:36.412Z",
-	"updatedAt": "2026-10-24T18:29:36.412Z",
+	"updatedAt": "2026-10-24T18:31:59.109Z",
 	"template": "bug-fix",
-	"templateLineage": [
-		"bug-fix"
-	],
+	"templateLineage": ["bug-fix"],
 	"enforceOrder": true,
 	"regressionCommits": 1,
 	"steps": [
 		{
 			"id": "spec",
 			"title": "Identify the failing behavior, expected behavior, and reproduction.",
-			"status": "pending"
+			"status": "complete",
+			"completedAt": "2026-10-24T18:31:58.804Z",
+			"evidence": "Physical iPhone exception and shared adapter transaction stack; planned feature closed-indexeddb-recovery.md"
 		},
 		{
 			"id": "coverage",
 			"title": "Explain why existing standardized tests missed the bug; name the scenario, fixture, lifecycle or assertion gap and reusable test change.",
-			"status": "pending"
+			"status": "complete",
+			"completedAt": "2026-10-24T18:31:59.109Z",
+			"evidence": "Existing standardized storage scenario lacked connection closure between operations; parameterized read, queue, atomic and concurrent lifecycles retain identical data assertions"
 		},
 		{
 			"id": "red",

@@ -1,0 +1,8 @@
+{
+	"schemaVersion": 1,
+	"setup": [],
+	"link": ["node_modules"],
+	"outputs": [],
+	"runners": { "vitest": "bun run test:unit {target}" },
+	"timeouts": { "test": 600000 }
+}
