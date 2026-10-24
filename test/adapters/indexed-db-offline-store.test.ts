@@ -35,11 +35,12 @@ it('reads metadata without materializing unrelated large cached response bodies'
 });
 
 describe('IndexedDbOfflineStoreAdapter', () => {
-	it.each(['open', 'read', 'queue-write', 'atomic-write', 'concurrent-read'])(
+	it.each(['open', 'read', 'cache-write', 'queue-write', 'atomic-write', 'concurrent-read'])(
 		'stores cache records, ordered operations, and sync metadata after %s lifecycle',
 		async (lifecycle) => {
 			const adapter = createAdapter();
 			const cacheRecord = cachedResponse();
+			if (lifecycle === 'cache-write') closeNextConnection();
 			await adapter.saveCachedResponse(cacheRecord);
 			if (lifecycle === 'queue-write') closeNextConnection();
 			await adapter.upsertOperation(queuedOperation({ id: 'later', createdAt: 20 }));
